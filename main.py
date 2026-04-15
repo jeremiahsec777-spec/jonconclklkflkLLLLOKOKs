@@ -5,6 +5,7 @@ from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.clock import Clock
 from kivy.uix.floatlayout import FloatLayout
 from kivy.logger import Logger
+from plyer import audio
 
 from cocoonglass.ui.orb import LiquidGlassOrb
 from cocoonglass.ui.glass_card import GlassCard
@@ -26,9 +27,9 @@ class MainScreen(Screen):
         self.note_manager = NoteManager(self.base_path)
         self.note_index = NoteIndex(self.base_path)
 
-        # Engine paths (should be configurable)
+        # Engine paths
         model_path = os.path.join(self.base_path, "models", "ggml-tiny.bin")
-        whisper_bin = os.path.join(os.getcwd(), "whisper-bin") # Placeholder
+        whisper_bin = os.path.join(os.getcwd(), "whisper-bin")
         self.engine = TranscriptionEngine(model_path, whisper_bin)
 
         # UI components
@@ -38,25 +39,38 @@ class MainScreen(Screen):
         self.layout.add_widget(self.orb)
         self.add_widget(self.layout)
 
-        # Notification card (initially hidden)
+        # Notification card
         self.card = None
+
+        # Audio recording path
+        self.audio_path = os.path.join(self.base_path, "cache", "capture.wav")
+        os.makedirs(os.path.dirname(self.audio_path), exist_ok=True)
 
     def on_recording_toggle(self, instance, value):
         if value:
             Logger.info("App: Started Recording")
-            # Logic to start audio recording would go here
+            try:
+                audio.start_recording(self.audio_path)
+            except Exception as e:
+                Logger.error(f"App: Could not start recording: {e}")
         else:
             Logger.info("App: Stopped Recording")
-            # Mock audio file for demonstration
-            mock_audio = os.path.join(self.base_path, "cache", "capture.wav")
-            os.makedirs(os.path.dirname(mock_audio), exist_ok=True)
+            try:
+                audio.stop_recording()
 
-            # If whisper bin doesn't exist, we mock the callback
-            if not os.path.exists(self.engine.whisper_bin_path):
-                Logger.warning("App: Whisper binary not found, using mock transcription")
-                self.on_transcription_complete("This is a mock transcription of your voice thought.")
-            else:
-                self.engine.transcribe(mock_audio, self.on_transcription_complete)
+                # Check if file exists and has size
+                if os.path.exists(self.audio_path) and os.path.getsize(self.audio_path) > 0:
+                    if not os.path.exists(self.engine.whisper_bin_path):
+                        Logger.warning("App: Whisper binary not found, using mock transcription for the captured file")
+                        self.on_transcription_complete(f"Captured audio saved to {self.audio_path}. (Mock transcription)")
+                    else:
+                        self.engine.transcribe(self.audio_path, self.on_transcription_complete)
+                else:
+                    Logger.warning("App: No audio data captured")
+                    self.on_transcription_complete("No voice detected or recording failed.")
+            except Exception as e:
+                Logger.error(f"App: Error stopping recording: {e}")
+                self.on_transcription_complete("Recording error occurred.")
 
     def on_transcription_complete(self, text):
         if text:
